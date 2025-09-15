@@ -42,4 +42,9 @@ void loop() {
   if(!formatted) {
     formatQSPIFlash();
   }
+  if(formatted) {
+    Serial.println("Flash formatted, rebooting into UF2 mode...");
+    delay(500);
+    enterUf2Dfu();
+  }
 }
