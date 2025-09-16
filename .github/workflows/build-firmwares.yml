@@ -1,0 +1,142 @@
+name: PlatformIO Build
+
+on:
+  # Trigger builds on releases
+  release:
+    types: [published]
+  # Manual trigger
+  workflow_dispatch:
+
+jobs:
+  get-environments:
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.get-envs.outputs.environments }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install PlatformIO
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio
+    
+    - name: Get PlatformIO environments
+      id: get-envs
+      run: |
+        environments=$(pio project config | grep 'env:' | sed 's/env://' | jq -R -s -c 'split("\n")[:-1]')
+        echo "environments=$environments" >> $GITHUB_OUTPUT
+        echo "Found environments: $environments"
+
+  build:
+    needs: get-environments
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: ${{ fromJson(needs.get-environments.outputs.environments) }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Cache PlatformIO packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.platformio/.cache
+          ~/.platformio/packages
+          ~/.platformio/platforms
+        key: ${{ runner.os }}-platformio-${{ hashFiles('**/platformio.ini') }}
+        restore-keys: |
+          ${{ runner.os }}-platformio-
+    
+    - name: Install PlatformIO
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio
+    
+    - name: Build firmware
+      run: pio run -e ${{ matrix.environment }}
+    
+    - name: Convert HEX to UF2
+      run: |
+        if [ -f .pio/build/${{ matrix.environment }}/firmware.hex ]; then
+          python bin/uf2conv/uf2conv.py -c -f 0xADA52840 -o .pio/build/${{ matrix.environment }}/firmware.uf2 .pio/build/${{ matrix.environment }}/firmware.hex
+          echo "UF2 conversion successful for ${{ matrix.environment }}"
+        else
+          echo "Warning: firmware.hex not found for ${{ matrix.environment }}"
+        fi
+    
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-${{ matrix.environment }}
+        path: |
+          .pio/build/${{ matrix.environment }}/firmware.zip
+          .pio/build/${{ matrix.environment }}/firmware.hex
+          .pio/build/${{ matrix.environment }}/firmware.uf2
+        retention-days: 30
+
+  # Create a release with firmware binaries
+  release:
+    if: github.event_name == 'release'
+    needs: [get-environments, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Organize and rename firmware files
+      run: |
+        mkdir release-files
+        
+        # Get the release tag (e.g., v1.0)
+        RELEASE_TAG=${GITHUB_REF#refs/tags/}
+        echo "Release tag: $RELEASE_TAG"
+        
+        # Process each environment's artifacts
+        for env_dir in artifacts/firmware-*; do
+          if [ -d "$env_dir" ]; then
+            # Extract environment name (remove "firmware-" prefix)
+            env_name=$(basename "$env_dir" | sed 's/firmware-//')
+            echo "Processing environment: $env_name"
+            
+            # Rename and copy files to release directory
+            [ -f "$env_dir/firmware.zip" ] && cp "$env_dir/firmware.zip" "release-files/${env_name}-${RELEASE_TAG}.zip"
+            [ -f "$env_dir/firmware.hex" ] && cp "$env_dir/firmware.hex" "release-files/${env_name}-${RELEASE_TAG}.hex"
+            [ -f "$env_dir/firmware.uf2" ] && cp "$env_dir/firmware.uf2" "release-files/${env_name}-${RELEASE_TAG}.uf2"
+          fi
+        done
+        
+        # List all files that will be uploaded
+        echo "Files to be uploaded to release:"
+        ls -la release-files/
+    
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-files/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
