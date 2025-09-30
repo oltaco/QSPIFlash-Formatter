@@ -1,4 +1,4 @@
-# QSPIFlash Formatter
+# MeshCore Formatter (UserData / ExtraFS / QSPIFlash)
 ---
 
-This firmware will attempt a low level format (writes all zeroes) of the external flash chip and then restart into UF2 DFU mode.
+This firmware will attempt to format all filesystem areas used by MeshCore and then restart into UF2 DFU mode.
