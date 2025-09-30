@@ -1,13 +1,13 @@
 #include <Arduino.h>
 #include <Adafruit_TinyUSB.h>
+#include "CustomLFS.h"
 #include "CustomLFS_QSPIFlash.h"
+#include "main.h"
 
 bool formatted = false;
 
 void setup() {
   Serial.begin(115200);
-
-  while(!Serial) delay(10);
 
   #ifdef LED_BUILTIN
   pinMode(LED_BUILTIN, OUTPUT);
@@ -22,28 +22,54 @@ void setup() {
   }
 }
 
+void formatAll() {
+  formatUserData();
+  formatExtraFS(); 
+  formatQSPIFlash();
+}
+
+void formatUserData() {
+   CustomLFS UserData = CustomLFS(0xED000, 0x7000);
+   if (UserData.format()) {
+    Serial.println("UserData formatted successfully!");
+   } else {
+    Serial.println("ERROR: UserData format failed!");
+    while(1);
+   }
+}
+
+void formatExtraFS() {
+   CustomLFS ExtraFS = CustomLFS(0xD4000, 19000);
+   if (ExtraFS.format()) {
+    Serial.println("ExtraFS formatted successfully!");
+   } else {
+    Serial.println("ERROR: ExtraFS format failed!");
+    while(1);
+   }
+}
+
 void formatQSPIFlash() {
-    #ifdef LED_BUILTIN
-    digitalWrite(LED_BUILTIN, LED_STATE_ON); // Turn on LED
-    #endif
-  if (QSPIFlash.lowLevelFormat()) {
-    Serial.println("Flash formatted successfully!");
-    #ifdef LED_BUILTIN
-    digitalWrite(LED_BUILTIN, !LED_STATE_ON); // Turn off LED
-    #endif
-    formatted = true;
+  if (QSPIFlash.format()) {
+    Serial.println("QSPIFlash formatted successfully!");
   } else {
-    Serial.println("ERROR: Flash format failed!");
+    Serial.println("ERROR: QSPIFlash format failed!");
     while(1);
   }
 }
 
 void loop() {
   if(!formatted) {
-    formatQSPIFlash();
+    #ifdef LED_BUILTIN
+    digitalWrite(LED_BUILTIN, LED_STATE_ON); // Turn on LED
+    #endif
+    formatAll();
+    #ifdef LED_BUILTIN
+    digitalWrite(LED_BUILTIN, !LED_STATE_ON); // Turn off LED
+    #endif
+    formatted = true;
   }
   if(formatted) {
-    Serial.println("Flash formatted, rebooting into UF2 mode...");
+    Serial.println("All formatted, rebooting into UF2 mode...");
     delay(500);
     enterUf2Dfu();
   }
