@@ -69,8 +69,8 @@ void loop() {
     formatted = true;
   }
   if(formatted) {
-    Serial.println("All formatted, rebooting into UF2 mode...");
+    Serial.println("All formatted, rebooting into serial DFU mode...");
     delay(500);
-    enterUf2Dfu();
+    enterSerialDfu();
   }
 }
